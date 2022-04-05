@@ -23,16 +23,21 @@ def main(args):
 
     # --------------- Setup options ---------------
     is_sim = args.is_sim # Run in simulation?
+    use_franka = args.use_franka # Use franka or UR5?
     obj_mesh_dir = os.path.abspath(args.obj_mesh_dir) if is_sim else None # Directory containing 3D mesh files (.obj) of objects to be added to simulation
     num_obj = args.num_obj if is_sim else None # Number of objects to add to simulation
     tcp_host_ip = args.tcp_host_ip if not is_sim else None # IP and port to robot arm as TCP client (UR5)
     tcp_port = args.tcp_port if not is_sim else None
     rtc_host_ip = args.rtc_host_ip if not is_sim else None # IP and port to robot arm as real-time client (UR5)
     rtc_port = args.rtc_port if not is_sim else None
-    if is_sim:
+    
+    if is_sim and not use_franka:
         workspace_limits = np.asarray([[-0.724, -0.276], [-0.224, 0.224], [-0.0001, 0.4]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
+    elif use_franka:
+        workspace_limits = np.asarray([[-0.724, -0.348], [-0.188, 0.188], [-0.0001, 0.4]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
     else:
         workspace_limits = np.asarray([[0.3, 0.748], [-0.224, 0.224], [-0.255, -0.1]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
+    
     heightmap_resolution = args.heightmap_resolution # Meters per pixel of heightmap
     random_seed = args.random_seed
     force_cpu = args.force_cpu
@@ -64,7 +69,7 @@ def main(args):
     np.random.seed(random_seed)
 
     # Initialize pick-and-place system (camera and robot)
-    robot = Robot(is_sim, obj_mesh_dir, num_obj, workspace_limits,
+    robot = Robot(is_sim, use_franka, obj_mesh_dir, num_obj, workspace_limits,
                   tcp_host_ip, tcp_port, rtc_host_ip, rtc_port,
                   is_testing, test_preset_cases, test_preset_file)
 
@@ -413,6 +418,7 @@ if __name__ == '__main__':
 
     # --------------- Setup options ---------------
     parser.add_argument('--is_sim', dest='is_sim', action='store_true', default=False,                                    help='run in simulation?')
+    parser.add_argument('--use_franka', dest='use_franka', action='store_true', default=False,                                help='use the Franka robot')
     parser.add_argument('--obj_mesh_dir', dest='obj_mesh_dir', action='store', default='objects/blocks',                  help='directory containing 3D mesh files (.obj) of objects to be added to simulation')
     parser.add_argument('--num_obj', dest='num_obj', type=int, action='store', default=10,                                help='number of objects to add to simulation')
     parser.add_argument('--tcp_host_ip', dest='tcp_host_ip', action='store', default='100.127.7.223',                     help='IP address to robot arm as TCP client (UR5)')

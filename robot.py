@@ -8,11 +8,12 @@ import utils
 from simulation import vrep
 
 class Robot(object):
-    def __init__(self, is_sim, obj_mesh_dir, num_obj, workspace_limits,
+    def __init__(self, is_sim, use_franka, obj_mesh_dir, num_obj, workspace_limits,
                  tcp_host_ip, tcp_port, rtc_host_ip, rtc_port,
                  is_testing, test_preset_cases, test_preset_file):
 
         self.is_sim = is_sim
+        self.use_franka = use_franka
         self.workspace_limits = workspace_limits
 
         # If in simulation...
@@ -174,8 +175,17 @@ class Robot(object):
                 object_position = [self.test_obj_positions[object_idx][0], self.test_obj_positions[object_idx][1], self.test_obj_positions[object_idx][2]]
                 object_orientation = [self.test_obj_orientations[object_idx][0], self.test_obj_orientations[object_idx][1], self.test_obj_orientations[object_idx][2]]
             object_color = [self.obj_mesh_color[object_idx][0], self.obj_mesh_color[object_idx][1], self.obj_mesh_color[object_idx][2]]
-            ret_resp,ret_ints,ret_floats,ret_strings,ret_buffer = vrep.simxCallScriptFunction(self.sim_client, 'remoteApiCommandServer',vrep.sim_scripttype_childscript,'importShape',[0,0,255,0], object_position + object_orientation + object_color, [curr_mesh_file, curr_shape_name], bytearray(), vrep.simx_opmode_blocking)
-            if ret_resp == 8:
+            i = 0
+            success = False
+            for i in range(10):
+                ret_resp,ret_ints,ret_floats,ret_strings,ret_buffer = vrep.simxCallScriptFunction(self.sim_client, 'remoteApiCommandServer',vrep.sim_scripttype_childscript,'importShape',[0,0,255,0], object_position + object_orientation + object_color, [curr_mesh_file, curr_shape_name], bytearray(), vrep.simx_opmode_blocking)
+                if ret_resp == 8:
+                    self.restart_sim()
+                    continue
+                else:
+                    success = True
+                    break
+            if not success:
                 print('Failed to add new objects to simulation. Please restart.')
                 exit()
             curr_shape_handle = ret_ints[0]
@@ -188,13 +198,22 @@ class Robot(object):
 
     def restart_sim(self):
 
-        sim_ret, self.UR5_target_handle = vrep.simxGetObjectHandle(self.sim_client,'UR5_target',vrep.simx_opmode_blocking)
+        if self.use_franka:
+            sim_ret, self.UR5_target_handle = vrep.simxGetObjectHandle(self.sim_client,'Franka_target',vrep.simx_opmode_blocking)
+        else:
+            sim_ret, self.UR5_target_handle = vrep.simxGetObjectHandle(self.sim_client,'UR5_target',vrep.simx_opmode_blocking)
         vrep.simxSetObjectPosition(self.sim_client, self.UR5_target_handle, -1, (-0.5,0,0.3), vrep.simx_opmode_blocking)
         vrep.simxStopSimulation(self.sim_client, vrep.simx_opmode_blocking)
+        time.sleep(0.5)
         vrep.simxStartSimulation(self.sim_client, vrep.simx_opmode_blocking)
-        time.sleep(1)
-        sim_ret, self.RG2_tip_handle = vrep.simxGetObjectHandle(self.sim_client, 'UR5_tip', vrep.simx_opmode_blocking)
+        time.sleep(0.5)
+        if self.use_franka:
+            sim_ret, self.RG2_tip_handle = vrep.simxGetObjectHandle(self.sim_client, 'Franka_tip', vrep.simx_opmode_blocking)
+        else:
+            sim_ret, self.RG2_tip_handle = vrep.simxGetObjectHandle(self.sim_client, 'UR5_tip', vrep.simx_opmode_blocking)
         sim_ret, gripper_position = vrep.simxGetObjectPosition(self.sim_client, self.RG2_tip_handle, -1, vrep.simx_opmode_blocking)
+
+
         while gripper_position[2] > 0.4: # V-REP bug requiring multiple starts and stops to restart
             vrep.simxStopSimulation(self.sim_client, vrep.simx_opmode_blocking)
             vrep.simxStartSimulation(self.sim_client, vrep.simx_opmode_blocking)
@@ -396,14 +415,23 @@ class Robot(object):
     def close_gripper(self, asynch=False):
 
         if self.is_sim:
-            gripper_motor_velocity = -0.5
-            gripper_motor_force = 100
-            sim_ret, RG2_gripper_handle = vrep.simxGetObjectHandle(self.sim_client, 'RG2_openCloseJoint', vrep.simx_opmode_blocking)
+            if self.use_franka:
+                gripper_motor_velocity = -0.2
+                gripper_motor_force = 100
+                sim_ret, RG2_gripper_handle = vrep.simxGetObjectHandle(self.sim_client, 'openCloseJoint', vrep.simx_opmode_blocking)
+                fully_closed_threshold = 0.015
+            else:
+                gripper_motor_velocity = -0.5
+                gripper_motor_force = 100
+                sim_ret, RG2_gripper_handle = vrep.simxGetObjectHandle(self.sim_client, 'RG2_openCloseJoint', vrep.simx_opmode_blocking)
+                fully_closed_threshold = -0.045
+            
             sim_ret, gripper_joint_position = vrep.simxGetJointPosition(self.sim_client, RG2_gripper_handle, vrep.simx_opmode_blocking)
             vrep.simxSetJointForce(self.sim_client, RG2_gripper_handle, gripper_motor_force, vrep.simx_opmode_blocking)
             vrep.simxSetJointTargetVelocity(self.sim_client, RG2_gripper_handle, gripper_motor_velocity, vrep.simx_opmode_blocking)
             gripper_fully_closed = False
-            while gripper_joint_position > -0.045: # Block until gripper is fully closed
+
+            while gripper_joint_position > fully_closed_threshold: # Block until gripper is fully closed
                 sim_ret, new_gripper_joint_position = vrep.simxGetJointPosition(self.sim_client, RG2_gripper_handle, vrep.simx_opmode_blocking)
                 # print(gripper_joint_position)
                 if new_gripper_joint_position >= gripper_joint_position:
@@ -428,13 +456,21 @@ class Robot(object):
     def open_gripper(self, asynch=False):
 
         if self.is_sim:
-            gripper_motor_velocity = 0.5
-            gripper_motor_force = 20
-            sim_ret, RG2_gripper_handle = vrep.simxGetObjectHandle(self.sim_client, 'RG2_openCloseJoint', vrep.simx_opmode_blocking)
+            if self.use_franka:
+                gripper_motor_velocity = 0.2
+                gripper_motor_force = 20
+                sim_ret, RG2_gripper_handle = vrep.simxGetObjectHandle(self.sim_client, 'openCloseJoint', vrep.simx_opmode_blocking)
+                open_threshold = 0.03
+            else:
+                gripper_motor_velocity = 0.5
+                gripper_motor_force = 20
+                sim_ret, RG2_gripper_handle = vrep.simxGetObjectHandle(self.sim_client, 'RG2_openCloseJoint', vrep.simx_opmode_blocking)
+                open_threshold = 0.03
+
             sim_ret, gripper_joint_position = vrep.simxGetJointPosition(self.sim_client, RG2_gripper_handle, vrep.simx_opmode_blocking)
             vrep.simxSetJointForce(self.sim_client, RG2_gripper_handle, gripper_motor_force, vrep.simx_opmode_blocking)
             vrep.simxSetJointTargetVelocity(self.sim_client, RG2_gripper_handle, gripper_motor_velocity, vrep.simx_opmode_blocking)
-            while gripper_joint_position < 0.03: # Block until gripper is fully open
+            while gripper_joint_position < open_threshold: # Block until gripper is fully open
                 sim_ret, gripper_joint_position = vrep.simxGetJointPosition(self.sim_client, RG2_gripper_handle, vrep.simx_opmode_blocking)
 
         else:
