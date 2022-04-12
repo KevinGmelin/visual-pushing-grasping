@@ -108,8 +108,8 @@ class Robot(object):
             self.rtc_port = rtc_port
 
             # Default home joint configuration
-            # self.home_joint_config = [-np.pi, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0]
-            self.home_joint_config = [-(180.0/360.0)*2*np.pi, -(84.2/360.0)*2*np.pi, (112.8/360.0)*2*np.pi, -(119.7/360.0)*2*np.pi, -(90.0/360.0)*2*np.pi, 0.0]
+            self.home_joint_config = [0, -np.pi/4, 0, -3 * np.pi/4, 0, np.pi/2, np.pi/4]
+            # self.home_joint_config = [-(180.0/360.0)*2*np.pi, -(84.2/360.0)*2*np.pi, (112.8/360.0)*2*np.pi, -(119.7/360.0)*2*np.pi, -(90.0/360.0)*2*np.pi, 0.0]
 
             # Default joint speed configuration
             self.joint_acc = 8 # Safe: 1.4
@@ -135,8 +135,8 @@ class Robot(object):
             self.cam_intrinsics = self.camera.intrinsics
 
             # Load camera pose (from running calibrate.py), intrinsics and depth scale
-            self.cam_pose = np.loadtxt('real/camera_pose.txt', delimiter=' ')
-            self.cam_depth_scale = np.loadtxt('real/camera_depth_scale.txt', delimiter=' ')
+            #self.cam_pose = np.loadtxt('real/camera_pose.txt', delimiter=' ')
+            #self.cam_depth_scale = np.loadtxt('real/camera_depth_scale.txt', delimiter=' ')
 
 
     def setup_sim_camera(self):
@@ -502,7 +502,7 @@ class Robot(object):
         return state_data
 
 
-    def move_to(self, tool_position, tool_orientation):
+    def move_to(self, tool_position, tool_orientation,force_threshold=None):
 
         if self.is_sim:
 
@@ -533,8 +533,10 @@ class Robot(object):
                           [np.sin(tool_orientation[2]), np.cos(tool_orientation[2]), 0],
                           [0, 0, 1]])
                 rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                move_pose.rotation= rot
-                self.fa.goto_pose(move_pose, 5, force_thresholds=[10, 10, 10, 10, 10, 10])
+                world_tr= np.array([[1,0,0],[0,-1,0],[0,0,-1]])
+                rot_f= np.matmul(world_tr,rot)
+                move_pose.rotation= rot_f
+                self.fa.goto_pose(move_pose, 5,force_threshold)
                 # curr_pose= self.fa.get_pose()
                 # curr_position= curr_pose[0:3]
 
@@ -566,7 +568,7 @@ class Robot(object):
         if self.use_franka:
             execute_success = True
             curr_pose= self.fa.get_pose()
-            curr_position= curr_pose[0:3]
+            curr_position= curr_pose.translation
             while not all([np.abs(curr_position[j] - tool_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
                 # [min(np.abs(actual_tool_pose[j] - tool_orientation[j-3]), np.abs(np.abs(actual_tool_pose[j] - tool_orientation[j-3]) - np.pi*2)) < self.tool_pose_tolerance[j] for j in range(3,6)]
 
@@ -578,21 +580,24 @@ class Robot(object):
                     increment = 0.01*increment/np.linalg.norm(increment)
                     increment_position = np.asarray(curr_position) + increment
 
-                move_pose= self.fa.get_pose()
-                move_pose.translation = [increment_position[0],increment_position[1],increment_position[2]]
-                rot_x= np.array([[1, 0, 0],
-                        [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
-                        [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
-                rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
-                        [0,1, 0],
-                        [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
-                rot_z= np.array([[np.cos(tool_orientation[2]), -np.sin(tool_orientation[2]), 0],
-                        [np.sin(tool_orientation[2]), np.cos(tool_orientation[2]), 0],
-                        [0, 0, 1]])
-                rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                move_pose.rotation= rot
-                self.fa.goto_pose(move_pose, 5, force_thresholds=[10, 10, 10, 10, 10, 10])
-                
+                self.move_to(increment_position,tool_orientation,force_threshold=[10, 10, 10, 10, 10, 10])
+                curr_pose= self.fa.get_pose()
+                curr_position= curr_pose.translation
+                # move_pose= self.fa.get_pose()
+                # move_pose.translation = [increment_position[0],increment_position[1],increment_position[2]]
+                # rot_x= np.array([[1, 0, 0],
+                #         [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
+                #         [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
+                # rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
+                #         [0,1, 0],
+                #         [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
+                # rot_z= np.array([[np.cos(tool_orientation[2]), -np.sin(tool_orientation[2]), 0],
+                #         [np.sin(tool_orientation[2]), np.cos(tool_orientation[2]), 0],
+                #         [0, 0, 1]])
+                # rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
+                # move_pose.rotation= rot
+                # self.fa.goto_pose(move_pose, 5, force_thresholds=[10, 10, 10, 10, 10, 10])
+
         else:
             self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.rtc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -689,7 +694,7 @@ class Robot(object):
     # Note: must be preceded by close_gripper()
     def check_grasp(self):
         if self.use_franka:
-            return self.fa.get_gripper_width > 0.26
+            return self.fa.get_gripper_width() < 0.01
 
         else:
             state_data = self.get_state()
@@ -783,46 +788,11 @@ class Robot(object):
                 position[2] = max(position[2] - 0.05, workspace_limits[2][0])
 
                 self.open_gripper()
-                move_pose= self.fa.get_pose()
-                move_pose.translation = [position[0],position[1],position[2]]
-                rot_x= np.array([[1, 0, 0],
-                        [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
-                        [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
-                rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
-                        [0,1, 0],
-                        [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
-                rot_z= np.array([[1, 0, 0],
-                        [0, 1, 0],
-                        [0, 0, 1]])
-                rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                move_pose.rotation= rot
-                self.fa.goto_pose(move_pose, 5)
+                self.move_to(position,tool_orientation)
                 self.close_gripper()
 
-                # tcp_command += " set_digital_out(8,False)\n"
-                # tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.09)\n" % (position[0],position[1],position[2]+0.1,tool_orientation[0],tool_orientation[1],0.0,self.joint_acc*0.5,self.joint_vel*0.5)
-                # tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (position[0],position[1],position[2],tool_orientation[0],tool_orientation[1],0.0,self.joint_acc*0.1,self.joint_vel*0.1)
-                # tcp_command += " set_digital_out(8,True)\n"
-
-                # Block until robot reaches target tool position and gripper fingers have stopped moving
-                # state_data = self.get_state()
-                # tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
-                # timeout_t0 = time.time()
-                # while True:
-                #     state_data = self.get_state()
-                #     new_tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
-                #     actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
-                #     timeout_t1 = time.time()
-                #     if (tool_analog_input2 < 3.7 and (abs(new_tool_analog_input2 - tool_analog_input2) < 0.01) and all([np.abs(actual_tool_pose[j] - position[j]) < self.tool_pose_tolerance[j] for j in range(3)])) or (timeout_t1 - timeout_t0) > 5:
-                #         break
-                #     tool_analog_input2 = new_tool_analog_input2
-
-                # Check if gripper is open (grasp might be successful)
-                gripper_open = self.fa.get_gripper_width > 0.26
-                #might have to change threshold
-
-                # # Check if grasp is successful
-                # grasp_success =  tool_analog_input2 > 0.26
+                gripper_open = self.fa.get_gripper_width() > 0.01
+                #from franka test
 
                 home_position = [0.3069, 0, 0.4867] #from frank constants
                 #[0.49,0.11,0.03]
@@ -840,52 +810,13 @@ class Robot(object):
 
                     # Attempt placing
 
-                    move_p1= self.fa.get_pose()
-                    move_p1.translation = [position[0],position[1],bin_position[2]]
-                    rot_x= np.array([[1, 0, 0],
-                            [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
-                            [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
-                    rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
-                            [0,1, 0],
-                            [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
-                    rot_z= np.array([[1, 0, 0],
-                            [0, 1, 0],
-                            [0, 0, 1]])
-                    rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                    move_p1.rotation= rot
-                    self.fa.goto_pose(move_p1, 5, block= False)
+                    self.move_to([position[0],position[1],bin_position[2]],[tool_orientation[0],tool_orientation[1], 0.0])
 
-                    move_p2= self.fa.get_pose()
-                    move_p2.translation = [bin_position[0],bin_position[1],bin_position[2]]
-                    rot_x= np.array([[1, 0, 0],
-                            [0, np.cos(tilted_tool_orientation[0]), -np.sin(tilted_tool_orientation[0])],
-                            [0, np.sin(tilted_tool_orientation[0]), np.cos(tilted_tool_orientation[0])]])
-                    rot_y= np.array([[np.cos(tilted_tool_orientation[1]), 0, np.sin(tilted_tool_orientation[1])],
-                            [0,1, 0],
-                            [-np.sin(tilted_tool_orientation[1]), 0, np.cos(tilted_tool_orientation[1])]])
-                    rot_z= np.array([[np.cos(tilted_tool_orientation[2]), -np.sin(tilted_tool_orientation[2]), 0],
-                        [np.sin(tilted_tool_orientation[2]), np.cos(tilted_tool_orientation[2]), 0],
-                        [0, 0, 1]])
-                    rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                    move_p2.rotation= rot
-                    self.fa.goto_pose(move_p2, 5, block= False)
+                    self.move_to(bin_position,tilted_tool_orientation)
 
-                    self.open_gripper(block= False)
+                    self.open_gripper()
 
-                    move_p3= self.fa.get_pose()
-                    move_p3.translation = [home_position[0],home_position[1],home_position[2]]
-                    rot_x= np.array([[1, 0, 0],
-                            [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
-                            [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
-                    rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
-                            [0,1, 0],
-                            [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
-                    rot_z= np.array([[1, 0, 0],
-                            [0, 1, 0],
-                            [0, 0, 1]])
-                    rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                    move_p3.rotation= rot
-                    self.fa.goto_pose(move_p3, 5,block= False)
+                    self.move_to(home_position,[tool_orientation[0],tool_orientation[1],0.0])
 
 
                     # Measure gripper width until robot reaches near bin location
@@ -893,7 +824,7 @@ class Robot(object):
                     measurements = []
                     while True:
                         tool_pose = self.fa.get_pose()
-                        tool_width = self.fa.get_gripper_width
+                        tool_width = self.fa.get_gripper_width()
                         measurements.append(tool_width)
                         if abs(tool_pose[1] - bin_position[1]) < 0.2 or all([np.abs(tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
                             break
@@ -904,48 +835,9 @@ class Robot(object):
                             grasp_success = True
 
                 else:
+                    self.move_to([position[0],position[1],position[2]+0.1],[tool_orientation[0],tool_orientation[1],0.0])
 
-                    move_pose1= self.fa.get_pose()
-                    move_pose1.translation = [position[0],position[1],position[2]+0.1]
-                    rot_x= np.array([[1, 0, 0],
-                            [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
-                            [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
-                    rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
-                            [0,1, 0],
-                            [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
-                    rot_z= np.array([[1, 0, 0],
-                            [0, 1, 0],
-                            [0, 0, 1]])
-                    rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                    move_pose1.rotation= rot
-                    self.fa.goto_pose(move_pose1, 5)
-
-                    move_pose2= self.fa.get_pose()
-                    move_pose2.translation = [home_position[0],home_position[1],home_position[2]]
-                    rot_x= np.array([[1, 0, 0],
-                            [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
-                            [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
-                    rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
-                            [0,1, 0],
-                            [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
-                    rot_z= np.array([[1, 0, 0],
-                            [0, 1, 0],
-                            [0, 0, 1]])
-                    rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                    move_pose2.rotation= rot
-                    self.fa.goto_pose(move_pose2, 5)
-
-                # Block until robot reaches home location
-                # state_data = self.get_state()
-                # tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
-                # actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
-                # while True:
-                #     state_data = self.get_state()
-                #     new_tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
-                #     actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
-                #     if (abs(new_tool_analog_input2 - tool_analog_input2) < 0.01) and all([np.abs(actual_tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
-                #         break
-                #     tool_analog_input2 = new_tool_analog_input2
+                    self.move_to(home_position,[tool_orientation[0],tool_orientation[1],0.0])
 
             else:
 
@@ -1334,7 +1226,7 @@ class Robot(object):
 
 
 
-# JUNK
+# JUNKself.fa.goto_joints(joints=joint_configuration, block=True)
 
 # command = "movel(p[%f,%f,%f,%f,%f,%f],0.5,0.2,0,0,a=1.2,v=0.25)\n" % (-0.5,-0.2,0.1,2.0171,2.4084,0)
 
