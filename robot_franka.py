@@ -8,6 +8,7 @@ import utils
 from simulation import vrep
 
 from frankapy import FrankaArm
+from autolab_core import RigidTransform
 
 class Robot(object):
     def __init__(self, is_sim, use_franka, obj_mesh_dir, num_obj, workspace_limits,
@@ -135,8 +136,8 @@ class Robot(object):
             self.cam_intrinsics = self.camera.intrinsics
 
             # Load camera pose (from running calibrate.py), intrinsics and depth scale
-            #self.cam_pose = np.loadtxt('real/camera_pose.txt', delimiter=' ')
-            #self.cam_depth_scale = np.loadtxt('real/camera_depth_scale.txt', delimiter=' ')
+            self.cam_pose = np.loadtxt('real/team4/camera_pose.txt', delimiter=' ')
+            self.cam_depth_scale = np.loadtxt('real/team4/camera_depth_scale.txt', delimiter=' ')
 
 
     def setup_sim_camera(self):
@@ -521,22 +522,28 @@ class Robot(object):
 
         else:
             if self.use_franka:
-                move_pose= self.fa.get_pose()
-                move_pose.translation = [tool_position[0],tool_position[1],tool_position[2]]
-                rot_x= np.array([[1, 0, 0],
-                          [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
-                          [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
-                rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
-                          [0,1, 0],
-                          [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
-                rot_z= np.array([[np.cos(tool_orientation[2]), -np.sin(tool_orientation[2]), 0],
-                          [np.sin(tool_orientation[2]), np.cos(tool_orientation[2]), 0],
-                          [0, 0, 1]])
-                rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                world_tr= np.array([[1,0,0],[0,-1,0],[0,0,-1]])
-                rot_f= np.matmul(world_tr,rot)
-                move_pose.rotation= rot_f
-                self.fa.goto_pose(move_pose, 5,force_threshold)
+                if tool_orientation is None:
+                    R = self.fa.get_pose().rotation
+                else:
+                    R = utils.euler2rotm(tool_orientation)
+                pose = RigidTransform(rotation=R, translation=tool_position, from_frame='franka_tool', to_frame='world')
+                self.fa.goto_pose(pose)
+                # move_pose= self.fa.get_pose()
+                # move_pose.translation = [tool_position[0],tool_position[1],tool_position[2]]
+                # rot_x= np.array([[1, 0, 0],
+                #           [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
+                #           [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
+                # rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
+                #           [0,1, 0],
+                #           [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
+                # rot_z= np.array([[np.cos(tool_orientation[2]), -np.sin(tool_orientation[2]), 0],
+                #           [np.sin(tool_orientation[2]), np.cos(tool_orientation[2]), 0],
+                #           [0, 0, 1]])
+                # rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
+                # world_tr= np.array([[1,0,0],[0,-1,0],[0,0,-1]])
+                # rot_f= np.matmul(world_tr,rot)
+                # move_pose.rotation= rot_f
+                # self.fa.goto_pose(move_pose, 5,force_threshold)
                 # curr_pose= self.fa.get_pose()
                 # curr_position= curr_pose[0:3]
 

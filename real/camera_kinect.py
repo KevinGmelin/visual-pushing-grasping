@@ -23,13 +23,7 @@ class Camera(object):
         AZURE_KINECT_INTRINSICS = 'calib/azure_kinect.intr'
         azure_kinect_intrinsics = CameraIntrinsics.load(AZURE_KINECT_INTRINSICS)
         self.intrinsics = azure_kinect_intrinsics._K
-
-    def get_data(self):
-
-        cv_bridge = CvBridge()
-        azure_kinect_rgb_image = self.get_azure_kinect_rgb_image(cv_bridge)
-        azure_kinect_depth_image = self.get_azure_kinect_depth_image(cv_bridge)
-        return azure_kinect_rgb_image, azure_kinect_depth_image
+        self.get_data()
 
     def get_azure_kinect_rgb_image(self, cv_bridge, topic='/rgb/image_raw'):
         """
@@ -54,3 +48,10 @@ class Camera(object):
             print(e)
 
         return depth_cv_image
+
+    def get_data(self):
+
+        cv_bridge = CvBridge()
+        azure_kinect_rgb_image = self.get_azure_kinect_rgb_image(cv_bridge)
+        azure_kinect_depth_image = self.get_azure_kinect_depth_image(cv_bridge)
+        return azure_kinect_rgb_image, azure_kinect_depth_image

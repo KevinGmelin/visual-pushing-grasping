@@ -14,10 +14,14 @@ from mpl_toolkits.mplot3d import Axes3D
 # User options (change me)
 # --------------- Setup options ---------------
 #workspace_limits = np.asarray([[0.3, 0.748], [0.05, 0.4], [-0.2, -0.1]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
-workspace_limits = np.asarray([[0.3, 0.6], [-0.25, 0.25], [0.25, 0.48]])
-calib_grid_step = 0.05
-checkerboard_offset_from_tool = [0,-0.13,0.02]
-tool_orientation = [-np.pi/2,0,0] # [0,-2.22,2.22] # [2.22,2.22,0]
+#workspace_limits = np.asarray([[0.3, 0.6], [-0.25, 0.25], [0.25, 0.48]])
+workspace_limits = np.asarray([[0.14273662+0.25, 0.658929158-0.15], [-0.37338492+0.15, 0.37420559-0.15], [0.01125959+0.15, 0.4]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
+
+calib_grid_step = 0.1
+#checkerboard_offset_from_tool = [0,-0.13,0.02]
+checkerboard_offset_from_tool = [0.02275, 0, -0.0732]
+#tool_orientation = [-np.pi/2,0,0] # [0,-2.22,2.22] # [2.22,2.22,0]
+tool_orientation = [0, -np.pi/2, np.pi/2]
 # ---------------------------------------------
 
 
@@ -27,6 +31,7 @@ gridspace_y = np.linspace(workspace_limits[1][0], workspace_limits[1][1], int(1 
 gridspace_z = np.linspace(workspace_limits[2][0], workspace_limits[2][1], int(1 + (workspace_limits[2][1] - workspace_limits[2][0])/calib_grid_step))
 calib_grid_x, calib_grid_y, calib_grid_z = np.meshgrid(gridspace_x, gridspace_y, gridspace_z)
 num_calib_grid_pts = calib_grid_x.shape[0]*calib_grid_x.shape[1]*calib_grid_x.shape[2]
+print("Number of points: ", num_calib_grid_pts)
 calib_grid_x.shape = (num_calib_grid_pts,1)
 calib_grid_y.shape = (num_calib_grid_pts,1)
 calib_grid_z.shape = (num_calib_grid_pts,1)
@@ -49,13 +54,17 @@ robot.open_gripper()
 
 # Make robot gripper point upwards
 
-robot.move_joints([-0.14964919, -0.30889512,  0.36900594, -2.38157516, -1.12292327,  1.62909936, 2.69204907])
+#robot.move_joints([-0.14964919, -0.30889512,  0.36900594, -2.38157516, -1.12292327,  1.62909936, 2.69204907])
+#robot.move_joints([1.79724289,-1.75960636,-1.63243426,-2.32524497,-0.26083442,2.57464826,-0.67064097])
+robot.move_joints([-1.71001372, -1.64870363,  1.53391208, -2.07034574, 0.12218504, 2.17892166, 2.29791981])
+
 
 # Move robot to each calibration point in workspace
 print('Collecting data...')
 for calib_pt_idx in range(num_calib_grid_pts):
+    print("Index: ", calib_pt_idx)
     tool_position = calib_grid_pts[calib_pt_idx,:]
-    robot.move_to(tool_position, tool_orientation, force_threshold=[10, 10, 10, 10, 10, 10])
+    robot.move_to(tool_position, tool_orientation)
     time.sleep(1)
 
     # Find checkerboard center
@@ -66,6 +75,7 @@ for calib_pt_idx in range(num_calib_grid_pts):
     gray_data = cv2.cvtColor(bgr_color_data, cv2.COLOR_RGB2GRAY)
     checkerboard_found, corners = cv2.findChessboardCorners(gray_data, checkerboard_size, None, cv2.CALIB_CB_ADAPTIVE_THRESH)
     if checkerboard_found:
+        print("Checkerboard found.")
         corners_refined = cv2.cornerSubPix(gray_data, corners, (3,3), (-1,-1), refine_criteria)
 
         # Get observed checkerboard center 3D point in camera space
@@ -156,10 +166,7 @@ print('Done.')
 # np.savetxt('measured_pts.txt', np.asarray(measured_pts), delimiter=' ')
 # np.savetxt('observed_pts.txt', np.asarray(observed_pts), delimiter=' ')
 # np.savetxt('observed_pix.txt', np.asarray(observed_pix), delimiter=' ')
-# measured_pts = np.loadtxt('measured_pts.txt', delimiter=' ')
-# observed_pts = np.loadtxt('observed_pts.txt', delimiter=' ')
-# observed_pix = np.loadtxt('observed_pix.txt', delimiter=' ')
-
+# measured_pts = np.loadtxt('measured_pts.txt')
 # fig = plt.figure()
 # ax = fig.add_subplot(111, projection='3d')
 # ax.scatter(measured_pts[:,0],measured_pts[:,1],measured_pts[:,2], c='blue')
