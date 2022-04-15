@@ -54,7 +54,7 @@ class Franka(object):
             self.cam_intrinsics = self.camera.intrinsics
 
             # Load camera pose (from running calibrate.py), intrinsics and depth scale
-            self.cam_pose = np.loadtxt('real/team4/camera_pose.txt', delimiter=' ')
+            self.cam_pose = np.loadtxt('real/camera_pose_modified.txt', delimiter=' ')
             self.cam_depth_scale = np.loadtxt('real/team4/camera_depth_scale.txt', delimiter=' ')
 
 

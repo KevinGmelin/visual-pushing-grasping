@@ -136,7 +136,7 @@ class Robot(object):
             self.cam_intrinsics = self.camera.intrinsics
 
             # Load camera pose (from running calibrate.py), intrinsics and depth scale
-            self.cam_pose = np.loadtxt('real/team4/camera_pose.txt', delimiter=' ')
+            self.cam_pose = np.loadtxt('real/camera_pose_modified.txt', delimiter=' ')
             self.cam_depth_scale = np.loadtxt('real/team4/camera_depth_scale.txt', delimiter=' ')
 
 
@@ -503,7 +503,7 @@ class Robot(object):
         return state_data
 
 
-    def move_to(self, tool_position, tool_orientation,force_threshold=None):
+    def move_to(self, tool_position, tool_orientation, block= True, force_threshold=None):
 
         if self.is_sim:
 
@@ -522,35 +522,20 @@ class Robot(object):
 
         else:
             if self.use_franka:
-                if tool_orientation is None:
-                    R = self.fa.get_pose().rotation
-                else:
-                    R = utils.euler2rotm(tool_orientation)
-                pose = RigidTransform(rotation=R, translation=tool_position, from_frame='franka_tool', to_frame='world')
-                self.fa.goto_pose(pose)
-                # move_pose= self.fa.get_pose()
-                # move_pose.translation = [tool_position[0],tool_position[1],tool_position[2]]
-                # rot_x= np.array([[1, 0, 0],
-                #           [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
-                #           [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
-                # rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
-                #           [0,1, 0],
-                #           [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
-                # rot_z= np.array([[np.cos(tool_orientation[2]), -np.sin(tool_orientation[2]), 0],
-                #           [np.sin(tool_orientation[2]), np.cos(tool_orientation[2]), 0],
-                #           [0, 0, 1]])
-                # rot= np.matmul(rot_x,np.matmul(rot_y,rot_z))
-                # world_tr= np.array([[1,0,0],[0,-1,0],[0,0,-1]])
-                # rot_f= np.matmul(world_tr,rot)
-                # move_pose.rotation= rot_f
-                # self.fa.goto_pose(move_pose, 5,force_threshold)
-                # curr_pose= self.fa.get_pose()
-                # curr_position= curr_pose[0:3]
+                translation = [tool_position[0],tool_position[1],tool_position[2]]
+                rot_x= np.array([[1, 0, 0],
+                          [0, np.cos(tool_orientation[0]), -np.sin(tool_orientation[0])],
+                          [0, np.sin(tool_orientation[0]), np.cos(tool_orientation[0])]])
+                rot_y= np.array([[np.cos(tool_orientation[1]), 0, np.sin(tool_orientation[1])],
+                          [0,1, 0],
+                          [-np.sin(tool_orientation[1]), 0, np.cos(tool_orientation[1])]])
+                rot_z= np.array([[np.cos(tool_orientation[2]), -np.sin(tool_orientation[2]), 0],
+                          [np.sin(tool_orientation[2]), np.cos(tool_orientation[2]), 0],
+                          [0, 0, 1]])
 
-                # while not all([np.abs(curr_position[j] - tool_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
-                #     curr_pose= self.fa.get_pose()
-                #     curr_position= curr_pose[0:3]
-                #     time.sleep(0.01)
+                rot= np.matmul(rot_z,np.matmul(rot_y,rot_x))
+                move_pose = RigidTransform(rotation = rot, translation=translation, from_frame='franka_tool', to_frame='world')
+                self.fa.goto_pose(move_pose, 5,force_threshold,block=block)
 
             else:
                 self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -804,7 +789,7 @@ class Robot(object):
                 home_position = [0.3069, 0, 0.4867] #from frank constants
                 #[0.49,0.11,0.03]
 
-                bin_position = [0.5,-0.45,0.1]
+                bin_position = [0.5,-0.15,0.1]
                 ################change bin position
 
                 # If gripper is open, drop object in bin and check if grasp is successful
@@ -816,34 +801,36 @@ class Robot(object):
                     #do we need blend radius?
 
                     # Attempt placing
-
+                    width_before = self.fa.get_gripper_width()
                     self.move_to([position[0],position[1],bin_position[2]],[tool_orientation[0],tool_orientation[1], 0.0])
 
-                    self.move_to(bin_position,tilted_tool_orientation)
+                    self.move_to(bin_position,tool_orientation)
+                    width_after = self.fa.get_gripper_width()
+
+                    if width_before - width_after < 0.1 and self.fa.get_gripper_width()<0.07 and self.fa.get_gripper_width()>0.02:
+                        print("Grasp succeeded!")
 
                     self.open_gripper()
 
                     self.move_to(home_position,[tool_orientation[0],tool_orientation[1],0.0])
 
+                    # # Measure gripper width until robot reaches near bin location
+                    # tool_pose = self.fa.get_pose()
+                    # measurements = []
+                    # while True:
+                    #     tool_pose = self.fa.get_pose()
+                    #     tool_width = self.fa.get_gripper_width()
+                    #     measurements.append(tool_width)
+                    #     if abs(tool_pose[1] - bin_position[1]) < 0.2 or all([np.abs(tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
+                    #         break
 
-                    # Measure gripper width until robot reaches near bin location
-                    tool_pose = self.fa.get_pose()
-                    measurements = []
-                    while True:
-                        tool_pose = self.fa.get_pose()
-                        tool_width = self.fa.get_gripper_width()
-                        measurements.append(tool_width)
-                        if abs(tool_pose[1] - bin_position[1]) < 0.2 or all([np.abs(tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
-                            break
-
-                    # If gripper width did not change before reaching bin location, then object is in grip and grasp is successful
-                    if len(measurements) >= 2:
-                        if abs(measurements[0] - measurements[1]) < 0.1:
-                            grasp_success = True
+                    # # If gripper width did not change before reaching bin location, then object is in grip and grasp is successful
+                    # if len(measurements) >= 2:
+                    #     if abs(measurements[0] - measurements[1]) < 0.1:
+                    #         grasp_success = True
 
                 else:
                     self.move_to([position[0],position[1],position[2]+0.1],[tool_orientation[0],tool_orientation[1],0.0])
-
                     self.move_to(home_position,[tool_orientation[0],tool_orientation[1],0.0])
 
             else:
@@ -1147,135 +1134,3 @@ class Robot(object):
             if tool_analog_input2 > 3.0 and (abs(new_tool_analog_input2 - tool_analog_input2) < 0.01) and all([np.abs(actual_tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
                 break
             tool_analog_input2 = new_tool_analog_input2
-
-
-    # def place(self, position, orientation, workspace_limits):
-    #     print('Executing: place at (%f, %f, %f)' % (position[0], position[1], position[2]))
-
-    #     # Attempt placing
-    #     position[2] = max(position[2], workspace_limits[2][0])
-    #     self.move_to([position[0], position[1], position[2] + 0.2], orientation)
-    #     self.move_to([position[0], position[1], position[2] + 0.05], orientation)
-    #     self.tool_acc = 1 # 0.05
-    #     self.tool_vel = 0.02 # 0.02
-    #     self.move_to([position[0], position[1], position[2]], orientation)
-    #     self.open_gripper()
-    #     self.tool_acc = 1 # 0.5
-    #     self.tool_vel = 0.2 # 0.2
-    #     self.move_to([position[0], position[1], position[2] + 0.2], orientation)
-    #     self.close_gripper()
-    #     self.go_home()
-
-    # def place(self, position, heightmap_rotation_angle, workspace_limits):
-    #     print('Executing: place at (%f, %f, %f)' % (position[0], position[1], position[2]))
-
-    #     if self.is_sim:
-
-    #         # Compute tool orientation from heightmap rotation angle
-    #         tool_rotation_angle = (heightmap_rotation_angle % np.pi) - np.pi/2
-
-    #         # Avoid collision with floor
-    #         position[2] = max(position[2] + 0.04 + 0.02, workspace_limits[2][0] + 0.02)
-
-    #         # Move gripper to location above place target
-    #         place_location_margin = 0.1
-    #         sim_ret, UR5_target_handle = vrep.simxGetObjectHandle(self.sim_client,'UR5_target',vrep.simx_opmode_blocking)
-    #         location_above_place_target = (position[0], position[1], position[2] + place_location_margin)
-    #         self.move_to(location_above_place_target, None)
-
-    #         sim_ret,gripper_orientation = vrep.simxGetObjectOrientation(self.sim_client, UR5_target_handle, -1, vrep.simx_opmode_blocking)
-    #         if tool_rotation_angle - gripper_orientation[1] > 0:
-    #             increment = 0.2
-    #         else:
-    #             increment = -0.2
-    #         while abs(tool_rotation_angle - gripper_orientation[1]) >= 0.2:
-    #             vrep.simxSetObjectOrientation(self.sim_client, UR5_target_handle, -1, (np.pi/2, gripper_orientation[1] + increment, np.pi/2), vrep.simx_opmode_blocking)
-    #             time.sleep(0.01)
-    #             sim_ret,gripper_orientation = vrep.simxGetObjectOrientation(self.sim_client, UR5_target_handle, -1, vrep.simx_opmode_blocking)
-    #         vrep.simxSetObjectOrientation(self.sim_client, UR5_target_handle, -1, (np.pi/2, tool_rotation_angle, np.pi/2), vrep.simx_opmode_blocking)
-
-    #         # Approach place target
-    #         self.move_to(position, None)
-
-    #         # Ensure gripper is open
-    #         self.open_gripper()
-
-    #         # Move gripper to location above place target
-    #         self.move_to(location_above_place_target, None)
-
-    #         place_success = True
-    #         return place_success
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# JUNKself.fa.goto_joints(joints=joint_configuration, block=True)
-
-# command = "movel(p[%f,%f,%f,%f,%f,%f],0.5,0.2,0,0,a=1.2,v=0.25)\n" % (-0.5,-0.2,0.1,2.0171,2.4084,0)
-
-# import socket
-
-# HOST = "192.168.1.100"
-# PORT = 30002
-# s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-# s.connect((HOST,PORT))
-
-# j0 = 0
-# j1 = -3.1415/2
-# j2 = 3.1415/2
-# j3 = -3.1415/2
-# j4 = -3.1415/2
-# j5 = 0;
-
-# joint_acc = 1.2
-# joint_vel = 0.25
-
-# # command = "movej([%f,%f,%f,%f,%f,%f],a=%f,v=%f)\n" % (j0,j1,j2,j3,j4,j5,joint_acc,joint_vel)
-
-
-
-# #
-
-
-# # True closes
-# command = "set_digital_out(8,True)\n"
-
-# s.send(str.encode(command))
-# data = s.recv(1024)
-
-
-
-# s.close()
-# print("Received",repr(data))
-
-
-
-
-
-# print()
-
-# String.Format ("movej([%f,%f,%f,%f,%f, %f], a={6}, v={7})\n", j0, j1, j2, j3, j4, j5, a, v);
