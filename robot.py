@@ -149,7 +149,8 @@ class Robot(object):
         cam_rotm = np.eye(4,4)
         cam_rotm[0:3,0:3] = np.linalg.inv(utils.euler2rotm(cam_orientation))
         self.cam_pose = np.dot(cam_trans, cam_rotm) # Compute rigid transformation representating camera pose
-        self.cam_intrinsics = np.asarray([[618.62, 0, 320], [0, 618.62, 240], [0, 0, 1]])
+        # self.cam_intrinsics = np.asarray([[983.6279296875, 0.0, 1021.0642700195312], [0.0, 983.7476806640625, 780.3133544921875], [0, 0, 1]])
+        self.cam_intrinsics = np.asarray([[1024, 0.0, 534], [0.0, 1013.638, 400.5], [0, 0, 1]])
         self.cam_depth_scale = 1
 
         # Get background image
@@ -202,7 +203,12 @@ class Robot(object):
             sim_ret, self.UR5_target_handle = vrep.simxGetObjectHandle(self.sim_client,'Franka_target',vrep.simx_opmode_blocking)
         else:
             sim_ret, self.UR5_target_handle = vrep.simxGetObjectHandle(self.sim_client,'UR5_target',vrep.simx_opmode_blocking)
-        vrep.simxSetObjectPosition(self.sim_client, self.UR5_target_handle, -1, (-0.5,0,0.3), vrep.simx_opmode_blocking)
+        x = (self.workspace_limits[0,0] + self.workspace_limits[0,1])/2.0
+        y = (self.workspace_limits[1,0] + self.workspace_limits[1,1])/2.0
+        print(x)
+        print(y)
+
+        vrep.simxSetObjectPosition(self.sim_client, self.UR5_target_handle, -1, (x,y,0.3), vrep.simx_opmode_blocking)
         vrep.simxStopSimulation(self.sim_client, vrep.simx_opmode_blocking)
         time.sleep(0.5)
         vrep.simxStartSimulation(self.sim_client, vrep.simx_opmode_blocking)
