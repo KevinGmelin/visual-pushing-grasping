@@ -52,8 +52,6 @@ def get_heightmap(color_img, depth_img, cam_intrinsics, cam_pose, workspace_limi
     sort_z_ind = np.argsort(surface_pts[:,2])
     surface_pts = surface_pts[sort_z_ind]
     color_pts = color_pts[sort_z_ind]
-
-    # Filter out surface points outside heightmap boundaries
     heightmap_valid_ind = np.logical_and(np.logical_and(np.logical_and(np.logical_and(surface_pts[:,0] >= workspace_limits[0][0], surface_pts[:,0] < workspace_limits[0][1]), surface_pts[:,1] >= workspace_limits[1][0]), surface_pts[:,1] < workspace_limits[1][1]), surface_pts[:,2] < workspace_limits[2][1])
     surface_pts = surface_pts[heightmap_valid_ind]
     color_pts = color_pts[heightmap_valid_ind]
@@ -171,11 +169,11 @@ def euler2rotm(theta):
     R_y = np.array([[math.cos(theta[1]),    0,      math.sin(theta[1])  ],
                     [0,                     1,      0                   ],
                     [-math.sin(theta[1]),   0,      math.cos(theta[1])  ]
-                    ])         
+                    ])
     R_z = np.array([[math.cos(theta[2]),    -math.sin(theta[2]),    0],
                     [math.sin(theta[2]),    math.cos(theta[2]),     0],
                     [0,                     0,                      1]
-                    ])            
+                    ])
     R = np.dot(R_z, np.dot( R_y, R_x ))
     return R
 
@@ -187,11 +185,11 @@ def isRotm(R) :
     I = np.identity(3, dtype = R.dtype)
     n = np.linalg.norm(I - shouldBeIdentity)
     return n < 1e-6
- 
- 
+
+
 # Calculates rotation matrix to euler angles
 def rotm2euler(R) :
- 
+
     assert(isRotm(R))
 
     sy = math.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
@@ -205,7 +203,7 @@ def rotm2euler(R) :
         x = math.atan2(-R[1,2], R[1,1])
         y = math.atan2(-R[2,0], sy)
         z = 0
- 
+
     return np.array([x, y, z])
 
 
@@ -288,7 +286,7 @@ def rotm2angle(R):
     # As we have reached here there are no singularities so we can handle normally
     s = np.sqrt((R[2][1] - R[1][2])*(R[2][1] - R[1][2]) + (R[0][2] - R[2][0])*(R[0][2] - R[2][0]) + (R[1][0] - R[0][1])*(R[1][0] - R[0][1])) # used to normalise
     if (abs(s) < 0.001):
-        s = 1 
+        s = 1
 
     # Prevent divide by zero, should not happen if matrix is orthogonal and should be
     # Caught by singularity test above, but I've left it in just in case
