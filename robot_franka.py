@@ -789,6 +789,7 @@ class Robot(object):
                 self.move_to(location_above_grasp_target, tool_orientation)
                 self.move_to(position, tool_orientation)
                 self.close_gripper()
+                location_above_grasp_target = (position[0], position[1], 0.40)
                 self.move_to(location_above_grasp_target, tool_orientation)
 
                 gripper_open = self.fa.get_gripper_width() > 0.01
@@ -797,7 +798,7 @@ class Robot(object):
                 home_position = [0.3069, 0, 0.4867] #from frank constants
                 #[0.49,0.11,0.03]
 
-                bin_position = [0.5,-0.15,0.1]
+                bin_position = [0.50,0.30,0.40]
                 ################change bin position
 
                 # If gripper is open, drop object in bin and check if grasp is successful
@@ -810,7 +811,6 @@ class Robot(object):
 
                     # Attempt placing
                     width_before = self.fa.get_gripper_width()
-                    self.move_to([position[0],position[1],bin_position[2]],[tool_orientation[0],tool_orientation[1], 0.0])
 
                     self.move_to(bin_position,tool_orientation)
                     width_after = self.fa.get_gripper_width()
@@ -824,7 +824,6 @@ class Robot(object):
 
 
                 else:
-                    self.move_to([position[0],position[1],position[2]+0.1],[tool_orientation[0],tool_orientation[1],0.0])
                     self.move_to(home_position,[tool_orientation[0],tool_orientation[1],0.0])
 
             else:
@@ -1004,12 +1003,23 @@ class Robot(object):
         else:
             if self.use_franka:
                 # Compute tool orientation from heightmap rotation angle
-                push_orientation = [1.0,0.0]
-                tool_rotation_angle = heightmap_rotation_angle/2
-                tool_orientation = np.asarray([push_orientation[0]*np.cos(tool_rotation_angle) - push_orientation[1]*np.sin(tool_rotation_angle), push_orientation[0]*np.sin(tool_rotation_angle) + push_orientation[1]*np.cos(tool_rotation_angle), 0.0])*np.pi
-                tool_orientation_angle = np.linalg.norm(tool_orientation)
-                tool_orientation_axis = tool_orientation/tool_orientation_angle
-                tool_orientation_rotm = utils.angle2rotm(tool_orientation_angle, tool_orientation_axis, point=None)[:3,:3]
+
+                # heightmap_rotation_angle -= np.pi / 2
+
+                if heightmap_rotation_angle > np.pi:
+                    heightmap_rotation_angle = heightmap_rotation_angle - 2*np.pi
+
+                push_orientation = [0.0,-1.0]
+
+                if heightmap_rotation_angle > np.pi/2:
+                    heightmap_rotation_angle -= np.pi
+                    push_orientation = [0.0, 1.0]
+                elif heightmap_rotation_angle <= -np.pi/2:
+                    heightmap_rotation_angle += np.pi
+                    push_orientation = [0.0, 1.0]
+
+                tool_orientation = np.array([np.pi, 0, heightmap_rotation_angle])
+
 
                 # Compute push direction and endpoint (push to right of rotated heightmap)
                 push_direction = np.asarray([push_orientation[0]*np.cos(heightmap_rotation_angle) - push_orientation[1]*np.sin(heightmap_rotation_angle), push_orientation[0]*np.sin(heightmap_rotation_angle) + push_orientation[1]*np.cos(heightmap_rotation_angle), 0.0])
@@ -1017,13 +1027,6 @@ class Robot(object):
                 target_y = min(max(position[1] + push_direction[1]*0.1, workspace_limits[1][0]), workspace_limits[1][1])
                 push_endpoint = np.asarray([target_x, target_y, position[2]])
                 push_direction.shape = (3,1)
-
-                # Compute tilted tool orientation during push
-                tilt_axis = np.dot(utils.euler2rotm(np.asarray([0,0,np.pi/2]))[:3,:3], push_direction)
-                tilt_rotm = utils.angle2rotm(-np.pi/8, tilt_axis, point=None)[:3,:3]
-                tilted_tool_orientation_rotm = np.dot(tilt_rotm, tool_orientation_rotm)
-                tilted_tool_orientation_axis_angle = utils.rotm2angle(tilted_tool_orientation_rotm)
-                tilted_tool_orientation = tilted_tool_orientation_axis_angle[0]*np.asarray(tilted_tool_orientation_axis_angle[1:4])
 
                 # Push only within workspace limits
                 position = np.asarray(position).copy()
@@ -1034,9 +1037,17 @@ class Robot(object):
                 home_position = [0.3069, 0, 0.4867] #Franka home position
 
                 # Attempt push
+                self.close_gripper()
+                push_location_margin = 0.15
+                location_above_grasp_target = (position[0], position[1], position[2] + push_location_margin)
+                self.move_to(location_above_grasp_target, tool_orientation)
                 self.move_to(position,tool_orientation)
-                self.move_to(push_endpoint,tilted_tool_orientation)
-                self.move_to(position,tool_orientation)
+                self.move_to(push_endpoint,tool_orientation)
+
+                push_location_margin = 0.15
+                location_above_grasp_target = (push_endpoint[0], push_endpoint[1], push_endpoint[2] + push_location_margin)
+                self.move_to(location_above_grasp_target, tool_orientation)
+
                 self.move_to(home_position,[tool_orientation[0],tool_orientation[1],0.0])
 
                 push_success = True

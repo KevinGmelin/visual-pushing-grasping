@@ -19,6 +19,7 @@ snapshot_file = "/home/student2/Project/visual-pushing-grasping/snapshot-005600.
 trainer = Trainer(method='reinforcement', push_rewards=True, future_reward_discount=0.5,
                   is_testing=True, load_snapshot=True, snapshot_file=snapshot_file, force_cpu=False)
 
+
 while True:
     # Get latest RGB-D image
     color_img, depth_img = robot.get_camera_data()
@@ -59,28 +60,75 @@ while True:
     # plt.imshow(color_heightmap)
     # plt.arrow(best_push_ind[2], best_push_ind[1], 10 * np.cos(np.deg2rad(best_push_angle)),
     #           10 * np.sin(np.deg2rad(best_push_angle)), width=2)
+    figGrasp, axGrasp = plt.subplots()
+    figPush, axPush = plt.subplots()
+
+    axPush.set_title("Best Push")
+    axPush.imshow(color_heightmap)
+    axPush.arrow(best_push_ind[2], best_push_ind[1], 10 * np.cos(np.deg2rad(best_push_angle)),
+              10 * np.sin(np.deg2rad(best_push_angle)), width=2)
     #
     # plt.figure()
     # plt.title("Best Grasp")
+    axGrasp.set_title("Best Grasp")
     # plt.imshow(color_heightmap)
+    axGrasp.imshow(color_heightmap)
     # plt.arrow(best_grasp_ind[2], best_grasp_ind[1], 10 * np.cos(np.deg2rad(best_grasp_angle)),
     #           10 * np.sin(np.deg2rad(best_grasp_angle)), width=2)
+    axGrasp.arrow(best_grasp_ind[2], best_grasp_ind[1], 10 * np.cos(np.deg2rad(best_grasp_angle)),
+              10 * np.sin(np.deg2rad(best_grasp_angle)), width=2)
 
-    best_pix_x = best_grasp_ind[2]
-    best_pix_y = best_grasp_ind[1]
-    primitive_position = [best_pix_x * heightmap_resolution + workspace_limits[0][0],
-                          best_pix_y * heightmap_resolution + workspace_limits[1][0],
-                          valid_depth_heightmap[best_pix_y][best_pix_x] + workspace_limits[2][0]]
-    primitive_position[0] -= 0.035
+    plt.show(block=True)
+    print("Show plots")
 
-    print(primitive_position)
+    best_push_conf = np.max(push_predictions)
+    best_grasp_conf = np.max(grasp_predictions)
 
-    # plt.show()
-    input("Ready to grasp?")
+    if best_grasp_conf >= best_push_conf:
+        best_pix_x = best_grasp_ind[2]
+        best_pix_y = best_grasp_ind[1]
+        primitive_position = [best_pix_x * heightmap_resolution + workspace_limits[0][0],
+                              best_pix_y * heightmap_resolution + workspace_limits[1][0],
+                              valid_depth_heightmap[best_pix_y][best_pix_x] + workspace_limits[2][0]]
+        primitive_position[0] -= 0.035
 
-    grasp_success = robot.grasp(primitive_position, np.deg2rad(best_grasp_angle), workspace_limits)
-    robot.go_home()
-    input("Try again?")
+        print(primitive_position)
+
+        # plt.show()
+        # input("Ready to grasp?")
+
+        grasp_success = robot.grasp(primitive_position, np.deg2rad(best_grasp_angle), workspace_limits)
+        robot.go_home()
+        # input("Try again?")
+    else:
+        best_pix_x = best_push_ind[2]
+        best_pix_y = best_push_ind[1]
+        primitive_position = [best_pix_x * heightmap_resolution + workspace_limits[0][0],
+                              best_pix_y * heightmap_resolution + workspace_limits[1][0],
+                              valid_depth_heightmap[best_pix_y][best_pix_x] + workspace_limits[2][0]]
+        primitive_position[0] -= 0.035
+
+        finger_width = 0.02
+        safe_kernel_width = int(np.round((finger_width / 2) / heightmap_resolution))
+        local_region = valid_depth_heightmap[
+                       max(best_pix_y - safe_kernel_width, 0):min(best_pix_y + safe_kernel_width + 1,
+                                                                  valid_depth_heightmap.shape[0]),
+                       max(best_pix_x - safe_kernel_width, 0):min(best_pix_x + safe_kernel_width + 1,
+                                                                  valid_depth_heightmap.shape[1])]
+        if local_region.size == 0:
+            safe_z_position = workspace_limits[2][0]
+        else:
+            safe_z_position = np.max(local_region) + workspace_limits[2][0]
+        primitive_position[2] = safe_z_position
+
+        print(primitive_position)
+
+        # plt.show()
+        # input("Ready to push?")
+
+        push_success = robot.push(primitive_position, np.deg2rad(best_grasp_angle), workspace_limits)
+        robot.go_home()
+        # input("Try again?")
 
 
 
