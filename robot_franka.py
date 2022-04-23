@@ -1008,60 +1008,101 @@ class Robot(object):
             push_success = True
 
         else:
+            if self.use_franka:
+                # Compute tool orientation from heightmap rotation angle
+                push_orientation = [1.0,0.0]
+                tool_rotation_angle = heightmap_rotation_angle/2
+                tool_orientation = np.asarray([push_orientation[0]*np.cos(tool_rotation_angle) - push_orientation[1]*np.sin(tool_rotation_angle), push_orientation[0]*np.sin(tool_rotation_angle) + push_orientation[1]*np.cos(tool_rotation_angle), 0.0])*np.pi
+                tool_orientation_angle = np.linalg.norm(tool_orientation)
+                tool_orientation_axis = tool_orientation/tool_orientation_angle
+                tool_orientation_rotm = utils.angle2rotm(tool_orientation_angle, tool_orientation_axis, point=None)[:3,:3]
 
-            # Compute tool orientation from heightmap rotation angle
-            push_orientation = [1.0,0.0]
-            tool_rotation_angle = heightmap_rotation_angle/2
-            tool_orientation = np.asarray([push_orientation[0]*np.cos(tool_rotation_angle) - push_orientation[1]*np.sin(tool_rotation_angle), push_orientation[0]*np.sin(tool_rotation_angle) + push_orientation[1]*np.cos(tool_rotation_angle), 0.0])*np.pi
-            tool_orientation_angle = np.linalg.norm(tool_orientation)
-            tool_orientation_axis = tool_orientation/tool_orientation_angle
-            tool_orientation_rotm = utils.angle2rotm(tool_orientation_angle, tool_orientation_axis, point=None)[:3,:3]
+                # Compute push direction and endpoint (push to right of rotated heightmap)
+                push_direction = np.asarray([push_orientation[0]*np.cos(heightmap_rotation_angle) - push_orientation[1]*np.sin(heightmap_rotation_angle), push_orientation[0]*np.sin(heightmap_rotation_angle) + push_orientation[1]*np.cos(heightmap_rotation_angle), 0.0])
+                target_x = min(max(position[0] + push_direction[0]*0.1, workspace_limits[0][0]), workspace_limits[0][1])
+                target_y = min(max(position[1] + push_direction[1]*0.1, workspace_limits[1][0]), workspace_limits[1][1])
+                push_endpoint = np.asarray([target_x, target_y, position[2]])
+                push_direction.shape = (3,1)
 
-            # Compute push direction and endpoint (push to right of rotated heightmap)
-            push_direction = np.asarray([push_orientation[0]*np.cos(heightmap_rotation_angle) - push_orientation[1]*np.sin(heightmap_rotation_angle), push_orientation[0]*np.sin(heightmap_rotation_angle) + push_orientation[1]*np.cos(heightmap_rotation_angle), 0.0])
-            target_x = min(max(position[0] + push_direction[0]*0.1, workspace_limits[0][0]), workspace_limits[0][1])
-            target_y = min(max(position[1] + push_direction[1]*0.1, workspace_limits[1][0]), workspace_limits[1][1])
-            push_endpoint = np.asarray([target_x, target_y, position[2]])
-            push_direction.shape = (3,1)
+                # Compute tilted tool orientation during push
+                tilt_axis = np.dot(utils.euler2rotm(np.asarray([0,0,np.pi/2]))[:3,:3], push_direction)
+                tilt_rotm = utils.angle2rotm(-np.pi/8, tilt_axis, point=None)[:3,:3]
+                tilted_tool_orientation_rotm = np.dot(tilt_rotm, tool_orientation_rotm)
+                tilted_tool_orientation_axis_angle = utils.rotm2angle(tilted_tool_orientation_rotm)
+                tilted_tool_orientation = tilted_tool_orientation_axis_angle[0]*np.asarray(tilted_tool_orientation_axis_angle[1:4])
 
-            # Compute tilted tool orientation during push
-            tilt_axis = np.dot(utils.euler2rotm(np.asarray([0,0,np.pi/2]))[:3,:3], push_direction)
-            tilt_rotm = utils.angle2rotm(-np.pi/8, tilt_axis, point=None)[:3,:3]
-            tilted_tool_orientation_rotm = np.dot(tilt_rotm, tool_orientation_rotm)
-            tilted_tool_orientation_axis_angle = utils.rotm2angle(tilted_tool_orientation_rotm)
-            tilted_tool_orientation = tilted_tool_orientation_axis_angle[0]*np.asarray(tilted_tool_orientation_axis_angle[1:4])
+                # Push only within workspace limits
+                position = np.asarray(position).copy()
+                position[0] = min(max(position[0], workspace_limits[0][0]), workspace_limits[0][1])
+                position[1] = min(max(position[1], workspace_limits[1][0]), workspace_limits[1][1])
+                position[2] = max(position[2] + 0.005, workspace_limits[2][0] + 0.005) # Add buffer to surface
 
-            # Push only within workspace limits
-            position = np.asarray(position).copy()
-            position[0] = min(max(position[0], workspace_limits[0][0]), workspace_limits[0][1])
-            position[1] = min(max(position[1], workspace_limits[1][0]), workspace_limits[1][1])
-            position[2] = max(position[2] + 0.005, workspace_limits[2][0] + 0.005) # Add buffer to surface
+                home_position = [0.3069, 0, 0.4867] #Franka home position
 
-            home_position = [0.49,0.11,0.03]
+                # Attempt push
+                self.move_to(position,tool_orientation)
+                self.move_to(push_endpoint,tilted_tool_orientation)
+                self.move_to(position,tool_orientation)
+                self.move_to(home_position,[tool_orientation[0],tool_orientation[1],0.0])
 
-            # Attempt push
-            self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.tcp_socket.connect((self.tcp_host_ip, self.tcp_port))
-            tcp_command = "def process():\n"
-            tcp_command += " set_digital_out(8,True)\n"
-            tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.09)\n" % (position[0],position[1],position[2]+0.1,tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
-            tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (position[0],position[1],position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
-            tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (push_endpoint[0],push_endpoint[1],push_endpoint[2],tilted_tool_orientation[0],tilted_tool_orientation[1],tilted_tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
-            tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.03)\n" % (position[0],position[1],position[2]+0.1,tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
-            tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (home_position[0],home_position[1],home_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
-            tcp_command += "end\n"
-            self.tcp_socket.send(str.encode(tcp_command))
-            self.tcp_socket.close()
+                push_success = True
+                time.sleep(0.5)
 
-            # Block until robot reaches target tool position and gripper fingers have stopped moving
-            state_data = self.get_state()
-            while True:
+            else:
+
+                # Compute tool orientation from heightmap rotation angle
+                push_orientation = [1.0,0.0]
+                tool_rotation_angle = heightmap_rotation_angle/2
+                tool_orientation = np.asarray([push_orientation[0]*np.cos(tool_rotation_angle) - push_orientation[1]*np.sin(tool_rotation_angle), push_orientation[0]*np.sin(tool_rotation_angle) + push_orientation[1]*np.cos(tool_rotation_angle), 0.0])*np.pi
+                tool_orientation_angle = np.linalg.norm(tool_orientation)
+                tool_orientation_axis = tool_orientation/tool_orientation_angle
+                tool_orientation_rotm = utils.angle2rotm(tool_orientation_angle, tool_orientation_axis, point=None)[:3,:3]
+
+                # Compute push direction and endpoint (push to right of rotated heightmap)
+                push_direction = np.asarray([push_orientation[0]*np.cos(heightmap_rotation_angle) - push_orientation[1]*np.sin(heightmap_rotation_angle), push_orientation[0]*np.sin(heightmap_rotation_angle) + push_orientation[1]*np.cos(heightmap_rotation_angle), 0.0])
+                target_x = min(max(position[0] + push_direction[0]*0.1, workspace_limits[0][0]), workspace_limits[0][1])
+                target_y = min(max(position[1] + push_direction[1]*0.1, workspace_limits[1][0]), workspace_limits[1][1])
+                push_endpoint = np.asarray([target_x, target_y, position[2]])
+                push_direction.shape = (3,1)
+
+                # Compute tilted tool orientation during push
+                tilt_axis = np.dot(utils.euler2rotm(np.asarray([0,0,np.pi/2]))[:3,:3], push_direction)
+                tilt_rotm = utils.angle2rotm(-np.pi/8, tilt_axis, point=None)[:3,:3]
+                tilted_tool_orientation_rotm = np.dot(tilt_rotm, tool_orientation_rotm)
+                tilted_tool_orientation_axis_angle = utils.rotm2angle(tilted_tool_orientation_rotm)
+                tilted_tool_orientation = tilted_tool_orientation_axis_angle[0]*np.asarray(tilted_tool_orientation_axis_angle[1:4])
+
+                # Push only within workspace limits
+                position = np.asarray(position).copy()
+                position[0] = min(max(position[0], workspace_limits[0][0]), workspace_limits[0][1])
+                position[1] = min(max(position[1], workspace_limits[1][0]), workspace_limits[1][1])
+                position[2] = max(position[2] + 0.005, workspace_limits[2][0] + 0.005) # Add buffer to surface
+
+                home_position = [0.49,0.11,0.03]
+
+                # Attempt push
+                self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.tcp_socket.connect((self.tcp_host_ip, self.tcp_port))
+                tcp_command = "def process():\n"
+                tcp_command += " set_digital_out(8,True)\n"
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.09)\n" % (position[0],position[1],position[2]+0.1,tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (position[0],position[1],position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (push_endpoint[0],push_endpoint[1],push_endpoint[2],tilted_tool_orientation[0],tilted_tool_orientation[1],tilted_tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.03)\n" % (position[0],position[1],position[2]+0.1,tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (home_position[0],home_position[1],home_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
+                tcp_command += "end\n"
+                self.tcp_socket.send(str.encode(tcp_command))
+                self.tcp_socket.close()
+
+                # Block until robot reaches target tool position and gripper fingers have stopped moving
                 state_data = self.get_state()
-                actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
-                if all([np.abs(actual_tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
-                    break
-            push_success = True
-            time.sleep(0.5)
+                while True:
+                    state_data = self.get_state()
+                    actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
+                    if all([np.abs(actual_tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
+                        break
+                push_success = True
+                time.sleep(0.5)
 
         return push_success
 
