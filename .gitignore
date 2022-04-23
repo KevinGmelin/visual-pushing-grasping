@@ -5,6 +5,7 @@ backup/*
 logs/*
 downloads/server
 downloads/*.pth
+*.pth
 
 real/camera_depth_scale.txt
 real/camera_pose.txt
