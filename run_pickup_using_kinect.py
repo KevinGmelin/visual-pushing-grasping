@@ -64,23 +64,6 @@ def grasp(robot, position, tool_orientation, workspace_limits):
         robot.move_to(bin_position,tool_orientation)
         width_after = robot.fa.get_gripper_width()
 
-        # # Measure gripper width until robot reaches near bin location
-        # tool_pose = robot.fa.get_pose()
-        # measurements = []
-        # while True:
-        #     tool_pose = robot.fa.get_pose()
-        #     tool_pose = tool_pose.translation
-        #     tool_width = robot.fa.get_gripper_width()
-        #     measurements.append(tool_width)
-        #     if abs(tool_pose[1] - bin_position[1]) < 0.2 or all([np.abs(tool_pose[j] - home_position[j]) < tool_pose_tolerance[j] for j in range(3)]):
-        #         break
-
-        # # If gripper width did not change before reaching bin location, then object is in grip and grasp is successful
-        # if len(measurements) >= 2:
-        #     print("Measurements > 2")
-        #     print(measurements[0] - measurements[1])
-        #     if abs(measurements[0] - measurements[1]) < 0.1:
-        #         grasp_success = True
         if width_before - width_after < 0.1 and robot.fa.get_gripper_width()<0.07 and robot.fa.get_gripper_width()>0.02:
             print("Grasp succeeded!")
 

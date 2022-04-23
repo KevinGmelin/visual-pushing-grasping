@@ -37,7 +37,7 @@ def get_pointcloud(color_img, depth_img, camera_intrinsics):
     return cam_pts, rgb_pts
 
 
-def get_heightmap(color_img, depth_img, cam_intrinsics, cam_pose, workspace_limits, heightmap_resolution):
+def get_heightmap(color_img, depth_img, cam_intrinsics, cam_pose, workspace_limits, heightmap_resolution, z_offset=-0.105):
 
     # Compute heightmap size
     heightmap_size = np.round(((workspace_limits[1][1] - workspace_limits[1][0])/heightmap_resolution, (workspace_limits[0][1] - workspace_limits[0][0])/heightmap_resolution)).astype(int)
@@ -51,6 +51,7 @@ def get_heightmap(color_img, depth_img, cam_intrinsics, cam_pose, workspace_limi
     # Sort surface points by z value
     sort_z_ind = np.argsort(surface_pts[:,2])
     surface_pts = surface_pts[sort_z_ind]
+    surface_pts[:,2] += z_offset
     color_pts = color_pts[sort_z_ind]
     heightmap_valid_ind = np.logical_and(np.logical_and(np.logical_and(np.logical_and(surface_pts[:,0] >= workspace_limits[0][0], surface_pts[:,0] < workspace_limits[0][1]), surface_pts[:,1] >= workspace_limits[1][0]), surface_pts[:,1] < workspace_limits[1][1]), surface_pts[:,2] < workspace_limits[2][1])
     surface_pts = surface_pts[heightmap_valid_ind]

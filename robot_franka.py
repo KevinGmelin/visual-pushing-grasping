@@ -534,8 +534,12 @@ class Robot(object):
                           [0, 0, 1]])
 
                 rot= np.matmul(rot_z,np.matmul(rot_y,rot_x))
-                move_pose = RigidTransform(rotation = rot, translation=translation, from_frame='franka_tool', to_frame='world')
-                self.fa.goto_pose(move_pose, 5,force_threshold,block=block)
+
+                move_pose = self.fa.get_pose()
+                move_pose.translation = translation
+                move_pose.rotation = rot
+                # move_pose = RigidTransform(rotation = rot, translation=translation, from_frame='franka_tool', to_frame='world')
+                self.fa.goto_pose(move_pose, block=block)
 
             else:
                 self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -760,28 +764,32 @@ class Robot(object):
         else:
             if self.use_franka:
                 # Compute tool orientation from heightmap rotation angle
-                grasp_orientation = [1.0,0.0]
+                heightmap_rotation_angle -= np.pi/2
                 if heightmap_rotation_angle > np.pi:
                     heightmap_rotation_angle = heightmap_rotation_angle - 2*np.pi
-                tool_rotation_angle = heightmap_rotation_angle/2
-                tool_orientation = np.asarray([grasp_orientation[0]*np.cos(tool_rotation_angle) - grasp_orientation[1]*np.sin(tool_rotation_angle), grasp_orientation[0]*np.sin(tool_rotation_angle) + grasp_orientation[1]*np.cos(tool_rotation_angle), 0.0])*np.pi
-                tool_orientation_angle = np.linalg.norm(tool_orientation)
-                tool_orientation_axis = tool_orientation/tool_orientation_angle
-                tool_orientation_rotm = utils.angle2rotm(tool_orientation_angle, tool_orientation_axis, point=None)[:3,:3]
 
-                # Compute tilted tool orientation during dropping into bin
-                tilt_rotm = utils.euler2rotm(np.asarray([-np.pi/4,0,0]))
-                tilted_tool_orientation_rotm = np.dot(tilt_rotm, tool_orientation_rotm)
-                tilted_tool_orientation_axis_angle = utils.rotm2angle(tilted_tool_orientation_rotm)
-                tilted_tool_orientation = tilted_tool_orientation_axis_angle[0]*np.asarray(tilted_tool_orientation_axis_angle[1:4])
+                if heightmap_rotation_angle > np.pi/2:
+                    heightmap_rotation_angle -= np.pi
+                elif heightmap_rotation_angle <= -np.pi/2:
+                    heightmap_rotation_angle += np.pi
+
+                # tool_rotation_angle = heightmap_rotation_angle/2
+                # tool_orientation = np.asarray([grasp_orientation[0]*np.cos(tool_rotation_angle) - grasp_orientation[1]*np.sin(tool_rotation_angle), grasp_orientation[0]*np.sin(tool_rotation_angle) + grasp_orientation[1]*np.cos(tool_rotation_angle), 0.0])*np.pi
+                print("Angle: ", heightmap_rotation_angle)
+                tool_orientation = [np.pi, 0.0, heightmap_rotation_angle]
 
                 # Attempt grasp
                 position = np.asarray(position).copy()
-                position[2] = max(position[2] - 0.05, workspace_limits[2][0])
+                position[2] = max(position[2] - 0.025, workspace_limits[2][0])
 
                 self.open_gripper()
-                self.move_to(position,tool_orientation)
+
+                grasp_location_margin = 0.15
+                location_above_grasp_target = (position[0], position[1], position[2] + grasp_location_margin)
+                self.move_to(location_above_grasp_target, tool_orientation)
+                self.move_to(position, tool_orientation)
                 self.close_gripper()
+                self.move_to(location_above_grasp_target, tool_orientation)
 
                 gripper_open = self.fa.get_gripper_width() > 0.01
                 #from franka test
@@ -814,20 +822,6 @@ class Robot(object):
 
                     self.move_to(home_position,[tool_orientation[0],tool_orientation[1],0.0])
 
-                    # # Measure gripper width until robot reaches near bin location
-                    # tool_pose = self.fa.get_pose()
-                    # measurements = []
-                    # while True:
-                    #     tool_pose = self.fa.get_pose()
-                    #     tool_width = self.fa.get_gripper_width()
-                    #     measurements.append(tool_width)
-                    #     if abs(tool_pose[1] - bin_position[1]) < 0.2 or all([np.abs(tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
-                    #         break
-
-                    # # If gripper width did not change before reaching bin location, then object is in grip and grasp is successful
-                    # if len(measurements) >= 2:
-                    #     if abs(measurements[0] - measurements[1]) < 0.1:
-                    #         grasp_success = True
 
                 else:
                     self.move_to([position[0],position[1],position[2]+0.1],[tool_orientation[0],tool_orientation[1],0.0])
