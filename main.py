@@ -52,6 +52,8 @@ def main(args):
     heuristic_bootstrap = args.heuristic_bootstrap # Use handcrafted grasping algorithm when grasping fails too many times in a row?
     explore_rate_decay = args.explore_rate_decay
     grasp_only = args.grasp_only
+    double_dqn = args.double_dqn
+    target_update_freq = args.target_update_freq
 
     # -------------- Testing options --------------
     is_testing = args.is_testing
@@ -77,7 +79,7 @@ def main(args):
 
     # Initialize trainer
     trainer = Trainer(method, push_rewards, future_reward_discount,
-                      is_testing, load_snapshot, snapshot_file, force_cpu)
+                      is_testing, load_snapshot, snapshot_file, force_cpu, double_dqn, target_update_freq)
 
     # Initialize data logger
     logger = Logger(continue_logging, logging_directory)
@@ -431,6 +433,8 @@ if __name__ == '__main__':
     parser.add_argument('--heuristic_bootstrap', dest='heuristic_bootstrap', action='store_true', default=False,          help='use handcrafted grasping algorithm when grasping fails too many times in a row during training?')
     parser.add_argument('--explore_rate_decay', dest='explore_rate_decay', action='store_true', default=False)
     parser.add_argument('--grasp_only', dest='grasp_only', action='store_true', default=False)
+    parser.add_argument('--double_dqn', dest='double_dqn', action='store_true', default=False)
+    parser.add_argument('--target_update_freq', dest='target_update_freq', type=int, action='store', default=50)
 
     # -------------- Testing options --------------
     parser.add_argument('--is_testing', dest='is_testing', action='store_true', default=False)

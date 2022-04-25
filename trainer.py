@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 class Trainer(object):
     def __init__(self, method, push_rewards, future_reward_discount,
-                 is_testing, load_snapshot, snapshot_file, force_cpu):
+                 is_testing, load_snapshot, snapshot_file, force_cpu, double_dqn=False, target_update_freq=50):
 
         self.method = method
 
@@ -54,6 +54,13 @@ class Trainer(object):
             self.model = reinforcement_net(self.use_cuda)
             self.push_rewards = push_rewards
             self.future_reward_discount = future_reward_discount
+            self.double_dqn = double_dqn
+
+            if self.double_dqn:
+                self.target_update_freq = target_update_freq
+                self.target_model = reinforcement_net(self.use_cuda)
+                self.target_model.load_state_dict(self.model.state_dict())
+                self.target_model_counter = 0
 
             # Initialize Huber loss
             self.criterion = torch.nn.SmoothL1Loss(reduce=False) # Huber loss
@@ -121,7 +128,7 @@ class Trainer(object):
 
 
     # Compute forward pass through model to compute affordances/Q
-    def forward(self, color_heightmap, depth_heightmap, is_volatile=False, specific_rotation=-1):
+    def forward(self, color_heightmap, depth_heightmap, is_volatile=False, specific_rotation=-1, double_q_target=False):
 
         # Apply 2x scale to input heightmaps
         color_heightmap_2x = ndimage.zoom(color_heightmap, zoom=[2,2,1], order=0)
@@ -163,7 +170,10 @@ class Trainer(object):
         input_depth_data = torch.from_numpy(input_depth_image.astype(np.float32)).permute(3,2,0,1)
 
         # Pass input data through model
-        output_prob, state_feat = self.model.forward(input_color_data, input_depth_data, is_volatile, specific_rotation)
+        if not double_q_target:
+            output_prob, state_feat = self.model.forward(input_color_data, input_depth_data, is_volatile, specific_rotation)
+        else:
+            output_prob, state_feat = self.target_model.forward(input_color_data, input_depth_data, is_volatile, specific_rotation)
 
         if self.method == 'reactive':
 
@@ -218,8 +228,25 @@ class Trainer(object):
                     current_reward = 1.0
 
             # Compute future reward
-            if not change_detected and not grasp_success:
+            if not change_detected and not grasp_success and not self.double_dqn:
                 future_reward = 0
+            elif self.double_dqn:
+                target_push_predictions, target_grasp_predictions, target_state_feat = self.forward(next_color_heightmap, next_depth_heightmap, is_volatile=True,
+                                                                                                    double_q_target=True)
+                next_push_predictions, next_grasp_predictions, next_state_feat = self.forward(next_color_heightmap, next_depth_heightmap, is_volatile=True)
+                best_push_ind = np.unravel_index(np.argmax(next_push_predictions), next_push_predictions.shape)
+                best_grasp_ind = np.unravel_index(np.argmax(next_grasp_predictions), next_grasp_predictions.shape)
+
+                if next_grasp_predictions[best_grasp_ind] >= next_push_predictions[best_push_ind]:
+                    future_reward = target_grasp_predictions[best_grasp_ind]
+                else:
+                    future_reward = target_push_predictions[best_push_ind]
+
+                self.target_model_counter += 1
+                if self.target_model_counter >= self.target_update_freq:
+                    self.target_model.load_state_dict(self.model.state_dict())
+                    self.target_model_counter = 0
+                    print("Updating target network")
             else:
                 next_push_predictions, next_grasp_predictions, next_state_feat = self.forward(next_color_heightmap, next_depth_heightmap, is_volatile=True)
                 future_reward = max(np.max(next_push_predictions), np.max(next_grasp_predictions))
