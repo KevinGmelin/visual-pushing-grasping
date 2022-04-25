@@ -34,9 +34,7 @@ def main(args):
     if is_sim and not use_franka:
         workspace_limits = np.asarray([[-0.724, -0.276], [-0.224, 0.224], [-0.0001, 0.4]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
     elif use_franka:
-        # workspace_limits = np.asarray([[-0.724, -0.348], [-0.188, 0.188], [-0.0001, 0.4]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
-        # workspace_limits = np.asarray([[0.315, 0.695], [-0.19, 0.19], [0.0, 0.4]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
-        workspace_limits = np.asarray([[0.348, 0.728], [-0.19, 0.19], [0.0, 0.4]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
+         workspace_limits = np.asarray([[0.352, 0.728], [-0.188, 0.188], [0.0, 0.4]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
     else:
         workspace_limits = np.asarray([[0.3, 0.748], [-0.224, 0.224], [-0.255, -0.1]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates)
 
@@ -365,7 +363,15 @@ def main(args):
                     sample_push_success = sample_reward_value == 0.5
                     sample_grasp_success = sample_reward_value == 1
                     sample_change_detected = sample_push_success
-                    # new_sample_label_value, _ = trainmodel(mple_iteration] = [np.max(sample_push_predictions)]
+                    # new_sample_label_value, _ = trainer.get_label_value(sample_primitive_action, sample_push_success, sample_grasp_success, sample_change_detected, sample_push_predictions, sample_grasp_predictions, next_sample_color_heightmap, next_sample_depth_heightmap)
+
+                    # Get labels for sample and backpropagate
+                    sample_best_pix_ind = (np.asarray(trainer.executed_action_log)[sample_iteration,1:4]).astype(int)
+                    trainer.backprop(sample_color_heightmap, sample_depth_heightmap, sample_primitive_action, sample_best_pix_ind, trainer.label_value_log[sample_iteration])
+
+                    # Recompute prediction value and label for replay buffer
+                    if sample_primitive_action == 'push':
+                        trainer.predicted_value_log[sample_iteration] = [np.max(sample_push_predictions)]
                         # trainer.label_value_log[sample_iteration] = [new_sample_label_value]
                     elif sample_primitive_action == 'grasp':
                         trainer.predicted_value_log[sample_iteration] = [np.max(sample_grasp_predictions)]

@@ -70,11 +70,15 @@ class Trainer(object):
         # Load pre-trained model
         if load_snapshot:
             self.model.load_state_dict(torch.load(snapshot_file))
+            if self.double_dqn:
+                self.target_model.load_state_dict(self.model.state_dict())
             print('Pre-trained model snapshot loaded from: %s' % (snapshot_file))
 
         # Convert model from CPU to GPU
         if self.use_cuda:
             self.model = self.model.cuda()
+            if self.double_dqn:
+                self.target_model = self.target_model.cuda()
 
         # Set model to training mode
         self.model.train()
