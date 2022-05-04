@@ -281,8 +281,12 @@ def main(args):
             depth_diff[depth_diff > 0.3] = 0
             depth_diff[depth_diff < 0.01] = 0
             depth_diff[depth_diff > 0] = 1
+            depth_map_x, depth_map_y = depth_heightmap.shape
+            depth_map_pixels = depth_map_x * depth_map_y
             change_threshold = 300
             change_value = np.sum(depth_diff)
+
+            change_percentage = change_value/depth_map_pixels
             change_detected = change_value > change_threshold or prev_grasp_success
             print('Change detected: %r (value: %d)' % (change_detected, change_value))
 
@@ -298,7 +302,7 @@ def main(args):
                     no_change_count[1] += 1
 
             # Compute training labels
-            label_value, prev_reward_value = trainer.get_label_value(prev_primitive_action, prev_push_success, prev_grasp_success, change_detected, prev_push_predictions, prev_grasp_predictions, color_heightmap, valid_depth_heightmap)
+            label_value, prev_reward_value = trainer.get_label_value(prev_primitive_action, prev_push_success, prev_grasp_success, change_detected, change_percentage, prev_push_predictions, prev_grasp_predictions, color_heightmap, valid_depth_heightmap)
             trainer.label_value_log.append([label_value])
             logger.write_to_log('label-value', trainer.label_value_log)
             trainer.reward_value_log.append([prev_reward_value])
