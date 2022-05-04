@@ -272,7 +272,7 @@ class Trainer(object):
 
 
     # Compute labels and backpropagate
-    def backprop(self, color_heightmap, depth_heightmap, primitive_action, best_pix_ind, label_value):
+    def backprop(self, color_heightmap, depth_heightmap, primitive_action, best_pix_ind, label_value, IS_weight=None):
 
         if self.method == 'reactive':
 
@@ -356,6 +356,8 @@ class Trainer(object):
             tmp_label_weights[action_area > 0] = 1
             label_weights[0,int(self.padding_width/2):int(self.diag_length/2-self.padding_width/2),
                             int(self.padding_width/2):int(self.diag_length/2-self.padding_width/2)] = tmp_label_weights
+            if IS_weight is not None:
+                label_weights = label_weights * IS_weight
 
             # Compute loss and backward pass
             self.optimizer.zero_grad()

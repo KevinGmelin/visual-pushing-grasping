@@ -52,6 +52,7 @@ def main(args):
     grasp_only = args.grasp_only
     double_dqn = args.double_dqn
     target_update_freq = args.target_update_freq
+    exp_replay_IS = args.exp_replay_IS
 
     # -------------- Testing options --------------
     is_testing = args.is_testing
@@ -339,9 +340,34 @@ def main(args):
                         sample_surprise_values = np.abs(np.asarray(trainer.predicted_value_log)[sample_ind[:,0]] - np.asarray(trainer.label_value_log)[sample_ind[:,0]])
                     sorted_surprise_ind = np.argsort(sample_surprise_values[:,0])
                     sorted_sample_ind = sample_ind[sorted_surprise_ind,0]
-                    pow_law_exp = 2
+                    if exp_replay_IS:
+                        pow_law_exp = 1.6
+                    else:
+                        pow_law_exp = 2
+
                     rand_sample_ind = int(np.round(np.random.power(pow_law_exp, 1)*(sample_ind.size-1)))
                     sample_iteration = sorted_sample_ind[rand_sample_ind]
+                    if exp_replay_IS:
+                        if trainer.iteration > 2000:
+                            beta = 1.0
+                        else:
+                            # Anneal the bias
+                            beta = 0.4 + trainer.iteration * (1.0 - 0.4) / 2000
+                        alpha = pow_law_exp - 1
+
+                        num_samples = len(sorted_sample_ind)
+                        norm_factor = np.sum([(i+1)**alpha for i in range(num_samples)])
+                        prob_sample = (rand_sample_ind+1)**alpha/norm_factor
+
+                        # Importance sampling weight
+                        IS_weight = (num_samples*prob_sample)**(-beta)
+
+                        lowest_prob = 1/norm_factor
+                        max_weight = (num_samples*lowest_prob)**(-beta)
+
+                        IS_weight = IS_weight/max_weight
+                        print("Importance Sampling Weight: ", IS_weight)
+
                     print('Experience replay: iteration %d (surprise value: %f)' % (sample_iteration, sample_surprise_values[sorted_surprise_ind[rand_sample_ind]]))
 
                     # Load sample RGB-D heightmap
@@ -367,7 +393,10 @@ def main(args):
 
                     # Get labels for sample and backpropagate
                     sample_best_pix_ind = (np.asarray(trainer.executed_action_log)[sample_iteration,1:4]).astype(int)
-                    trainer.backprop(sample_color_heightmap, sample_depth_heightmap, sample_primitive_action, sample_best_pix_ind, trainer.label_value_log[sample_iteration])
+                    if exp_replay_IS:
+                        trainer.backprop(sample_color_heightmap, sample_depth_heightmap, sample_primitive_action, sample_best_pix_ind, trainer.label_value_log[sample_iteration], IS_weight=IS_weight)
+                    else:
+                        trainer.backprop(sample_color_heightmap, sample_depth_heightmap, sample_primitive_action, sample_best_pix_ind, trainer.label_value_log[sample_iteration])
 
                     # Recompute prediction value and label for replay buffer
                     if sample_primitive_action == 'push':
@@ -441,6 +470,7 @@ if __name__ == '__main__':
     parser.add_argument('--grasp_only', dest='grasp_only', action='store_true', default=False)
     parser.add_argument('--double_dqn', dest='double_dqn', action='store_true', default=False)
     parser.add_argument('--target_update_freq', dest='target_update_freq', type=int, action='store', default=50)
+    parser.add_argument('--exp_replay_IS', dest='exp_replay_IS', action='store_true', default=False)
 
     # -------------- Testing options --------------
     parser.add_argument('--is_testing', dest='is_testing', action='store_true', default=False)
