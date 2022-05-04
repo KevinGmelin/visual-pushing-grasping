@@ -1113,70 +1113,90 @@ class Robot(object):
 
 
     def restart_real(self):
+            if self.use_franka:
+                # Move to box grabbing position
+                tool_orientation = np.array([np.pi, 0, 0])
+                box_grab_position = [0.50,0.30,0.35]
+                pre_box_grab_position = [0.50,0.30,0.35+0.2]
+                box_release_position = [0.50,0.08,0.35]
+                box_release_position_h = [0.50,0.08,0.35+0.2]
+                self.open_gripper()
+                self.move_to(pre_box_grab_position, tool_orientation)
+                self.move_to(box_grab_position, tool_orientation)
+                self.close_gripper()
 
-        # Compute tool orientation from heightmap rotation angle
-        grasp_orientation = [1.0,0.0]
-        tool_rotation_angle = -np.pi/4
-        tool_orientation = np.asarray([grasp_orientation[0]*np.cos(tool_rotation_angle) - grasp_orientation[1]*np.sin(tool_rotation_angle), grasp_orientation[0]*np.sin(tool_rotation_angle) + grasp_orientation[1]*np.cos(tool_rotation_angle), 0.0])*np.pi
-        tool_orientation_angle = np.linalg.norm(tool_orientation)
-        tool_orientation_axis = tool_orientation/tool_orientation_angle
-        tool_orientation_rotm = utils.angle2rotm(tool_orientation_angle, tool_orientation_axis, point=None)[:3,:3]
+                self.move_to(box_release_position, tool_orientation)
+                self.move_to(box_release_position_h, tool_orientation)
+                self.move_to(pre_box_grab_position, tool_orientation)
+                self.move_to(box_grab_position, tool_orientation)
 
-        tilt_rotm = utils.euler2rotm(np.asarray([-np.pi/4,0,0]))
-        tilted_tool_orientation_rotm = np.dot(tilt_rotm, tool_orientation_rotm)
-        tilted_tool_orientation_axis_angle = utils.rotm2angle(tilted_tool_orientation_rotm)
-        tilted_tool_orientation = tilted_tool_orientation_axis_angle[0]*np.asarray(tilted_tool_orientation_axis_angle[1:4])
+                self.open_gripper()
+                self.go_home()
 
-        # Move to box grabbing position
-        box_grab_position = [0.5,-0.35,-0.12]
-        self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp_socket.connect((self.tcp_host_ip, self.tcp_port))
-        tcp_command = "def process():\n"
-        tcp_command += " set_digital_out(8,False)\n"
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.09)\n" % (box_grab_position[0],box_grab_position[1],box_grab_position[2]+0.1,tilted_tool_orientation[0],tilted_tool_orientation[1],tilted_tool_orientation[2],self.joint_acc,self.joint_vel)
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_grab_position[0],box_grab_position[1],box_grab_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc,self.joint_vel)
-        tcp_command += " set_digital_out(8,True)\n"
-        tcp_command += "end\n"
-        self.tcp_socket.send(str.encode(tcp_command))
-        self.tcp_socket.close()
+            else:
+                # Compute tool orientation from heightmap rotation angle
+                grasp_orientation = [1.0,0.0]
+                tool_rotation_angle = -np.pi/4
+                tool_orientation = np.asarray([grasp_orientation[0]*np.cos(tool_rotation_angle) - grasp_orientation[1]*np.sin(tool_rotation_angle), grasp_orientation[0]*np.sin(tool_rotation_angle) + grasp_orientation[1]*np.cos(tool_rotation_angle), 0.0])*np.pi
+                tool_orientation_angle = np.linalg.norm(tool_orientation)
+                tool_orientation_axis = tool_orientation/tool_orientation_angle
+                tool_orientation_rotm = utils.angle2rotm(tool_orientation_angle, tool_orientation_axis, point=None)[:3,:3]
 
-        # Block until robot reaches box grabbing position and gripper fingers have stopped moving
-        state_data = self.get_state()
-        tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
-        while True:
-            state_data = self.get_state()
-            new_tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
-            actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
-            if tool_analog_input2 < 3.7 and (abs(new_tool_analog_input2 - tool_analog_input2) < 0.01) and all([np.abs(actual_tool_pose[j] - box_grab_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
-                break
-            tool_analog_input2 = new_tool_analog_input2
+                tilt_rotm = utils.euler2rotm(np.asarray([-np.pi/4,0,0]))
+                tilted_tool_orientation_rotm = np.dot(tilt_rotm, tool_orientation_rotm)
+                tilted_tool_orientation_axis_angle = utils.rotm2angle(tilted_tool_orientation_rotm)
+                tilted_tool_orientation = tilted_tool_orientation_axis_angle[0]*np.asarray(tilted_tool_orientation_axis_angle[1:4])
 
-        # Move to box release position
-        box_release_position = [0.5,0.08,-0.12]
-        home_position = [0.49,0.11,0.03]
-        self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp_socket.connect((self.tcp_host_ip, self.tcp_port))
-        tcp_command = "def process():\n"
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_release_position[0],box_release_position[1],box_release_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_release_position[0],box_release_position[1],box_release_position[2]+0.3,tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.02,self.joint_vel*0.02)
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.29)\n" % (box_grab_position[0]-0.05,box_grab_position[1]+0.1,box_grab_position[2]+0.3,tilted_tool_orientation[0],tilted_tool_orientation[1],tilted_tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_grab_position[0]-0.05,box_grab_position[1]+0.1,box_grab_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_grab_position[0],box_grab_position[1],box_grab_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_grab_position[0]+0.05,box_grab_position[1],box_grab_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
-        tcp_command += " set_digital_out(8,False)\n"
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.09)\n" % (box_grab_position[0],box_grab_position[1],box_grab_position[2]+0.1,tilted_tool_orientation[0],tilted_tool_orientation[1],tilted_tool_orientation[2],self.joint_acc,self.joint_vel)
-        tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (home_position[0],home_position[1],home_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc,self.joint_vel)
-        tcp_command += "end\n"
-        self.tcp_socket.send(str.encode(tcp_command))
-        self.tcp_socket.close()
+                # Move to box grabbing position
+                box_grab_position = [0.5,-0.35,-0.12]
+                self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.tcp_socket.connect((self.tcp_host_ip, self.tcp_port))
+                tcp_command = "def process():\n"
+                tcp_command += " set_digital_out(8,False)\n"
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.09)\n" % (box_grab_position[0],box_grab_position[1],box_grab_position[2]+0.1,tilted_tool_orientation[0],tilted_tool_orientation[1],tilted_tool_orientation[2],self.joint_acc,self.joint_vel)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_grab_position[0],box_grab_position[1],box_grab_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc,self.joint_vel)
+                tcp_command += " set_digital_out(8,True)\n"
+                tcp_command += "end\n"
+                self.tcp_socket.send(str.encode(tcp_command))
+                self.tcp_socket.close()
 
-        # Block until robot reaches home position
-        state_data = self.get_state()
-        tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
-        while True:
-            state_data = self.get_state()
-            new_tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
-            actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
-            if tool_analog_input2 > 3.0 and (abs(new_tool_analog_input2 - tool_analog_input2) < 0.01) and all([np.abs(actual_tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
-                break
-            tool_analog_input2 = new_tool_analog_input2
+                # Block until robot reaches box grabbing position and gripper fingers have stopped moving
+                state_data = self.get_state()
+                tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
+                while True:
+                    state_data = self.get_state()
+                    new_tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
+                    actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
+                    if tool_analog_input2 < 3.7 and (abs(new_tool_analog_input2 - tool_analog_input2) < 0.01) and all([np.abs(actual_tool_pose[j] - box_grab_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
+                        break
+                    tool_analog_input2 = new_tool_analog_input2
+
+                # Move to box release position
+                box_release_position = [0.5,0.08,-0.12]
+                home_position = [0.49,0.11,0.03]
+                self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.tcp_socket.connect((self.tcp_host_ip, self.tcp_port))
+                tcp_command = "def process():\n"
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_release_position[0],box_release_position[1],box_release_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_release_position[0],box_release_position[1],box_release_position[2]+0.3,tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.02,self.joint_vel*0.02)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.29)\n" % (box_grab_position[0]-0.05,box_grab_position[1]+0.1,box_grab_position[2]+0.3,tilted_tool_orientation[0],tilted_tool_orientation[1],tilted_tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_grab_position[0]-0.05,box_grab_position[1]+0.1,box_grab_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.5,self.joint_vel*0.5)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_grab_position[0],box_grab_position[1],box_grab_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (box_grab_position[0]+0.05,box_grab_position[1],box_grab_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc*0.1,self.joint_vel*0.1)
+                tcp_command += " set_digital_out(8,False)\n"
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.09)\n" % (box_grab_position[0],box_grab_position[1],box_grab_position[2]+0.1,tilted_tool_orientation[0],tilted_tool_orientation[1],tilted_tool_orientation[2],self.joint_acc,self.joint_vel)
+                tcp_command += " movej(p[%f,%f,%f,%f,%f,%f],a=%f,v=%f,t=0,r=0.00)\n" % (home_position[0],home_position[1],home_position[2],tool_orientation[0],tool_orientation[1],tool_orientation[2],self.joint_acc,self.joint_vel)
+                tcp_command += "end\n"
+                self.tcp_socket.send(str.encode(tcp_command))
+                self.tcp_socket.close()
+
+                # Block until robot reaches home position
+                state_data = self.get_state()
+                tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
+                while True:
+                    state_data = self.get_state()
+                    new_tool_analog_input2 = self.parse_tcp_state_data(state_data, 'tool_data')
+                    actual_tool_pose = self.parse_tcp_state_data(state_data, 'cartesian_info')
+                    if tool_analog_input2 > 3.0 and (abs(new_tool_analog_input2 - tool_analog_input2) < 0.01) and all([np.abs(actual_tool_pose[j] - home_position[j]) < self.tool_pose_tolerance[j] for j in range(3)]):
+                        break
+                    tool_analog_input2 = new_tool_analog_input2
